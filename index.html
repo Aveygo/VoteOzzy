@@ -28,7 +28,7 @@
 <script>
 async function main() {
     // Load and parse the embedding data
-    const response = await fetch('/emb_data.json');
+    const response = await fetch('emb_data.json');
     const data = await response.json();
 
     // Decode base64 strings into Float32Arrays
