@@ -1,49 +1,48 @@
 import json
-from ollama import chat
-from ollama import ChatResponse
+import numpy as np
+#import matplotlib.pyplot as plt
+from sentence_transformers import SentenceTransformer
+#from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
+#from openTSNE import TSNE
+import base64
 
-
-with open("result_pn.json", "r") as f:
+with open("result.json", "r") as f:
     data = json.load(f)
 
-
-response_format = """{"agree":<agree>, "disagree":<disagree>}""" 
-
-def format_policy(policy, description):
-    response: ChatResponse = chat(model='qwen2.5:32b-instruct-q4_K_M', messages=[
-    {
-        'role': 'user',
-        'content': f'I have the following policy that I want to turn into an embedding:\n```{policy}\n{description}```\n\nCan you create two perspectives from the policy; one sentence that agrees with the policy, and another that disagrees. Please answer your response using the json:\n``````',
-    },
-    ])
-    response = response['message']['content']
-    response = response.replace("```", "").replace("\n", "").replace("  ", " ").replace("\t", "").replace("json", "")
-    
-    print(response)
-
-    try:
-        response = json.loads(response)
-        agree, disagree = response.values()
-    except Exception as e:
-        print(e)
-        return format_policy(policy, description)
-
-    return agree, disagree
+model = SentenceTransformer("all-MiniLM-L6-v2")
+positive_embs = model.encode([i["positive"] for i in data.values()])
+negative_embs = model.encode([i["negative"] for i in data.values()])
+delta_embs = positive_embs - negative_embs
 
 
-for (policy, description) in list(data["policies"].items()):
+party_embs = {}
 
-    if isinstance(description, dict):
-        continue
+for idx, (k, v) in enumerate(data.items()):
+    party_embs.setdefault(v["party_src"], [])
+    party_embs[v["party_src"]].append(delta_embs[idx])
 
-    positive, negative = format_policy(policy, description)
+for party in party_embs:
+    party_embs[party] = np.mean(np.array(party_embs[party]), axis=0)
 
-    data["policies"][policy] = {
-        "description": description,
-        "positive": positive,
-        "negative": negative
-    }
+party_labels = list(party_embs.keys())
+party_embs = np.array(list(party_embs.values()))
 
-    with open("result_pn.json", "w") as f:
-        json.dump(data, f, indent="\t")
-    
+pca = PCA(n_components=8)
+pca.fit(delta_embs)
+party_embs = pca.transform(party_embs)
+delta_embs = pca.transform(delta_embs)
+
+emb_data = {
+    "parties": {},
+    "policies": {}
+}
+for idx, party in enumerate(party_labels):
+    emb_data["parties"][party] = base64.b64encode(party_embs[idx].astype(np.float32)).decode()
+
+for idx, policy in enumerate(data):
+    emb_data["policies"][data[policy]["ideal_inspiration"]] =  base64.b64encode(delta_embs[idx].astype(np.float32)).decode()
+
+
+with open("emb_data.json", "w") as f:
+    json.dump(emb_data, f, indent="\t")

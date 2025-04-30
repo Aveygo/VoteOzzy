@@ -1,0 +1,285 @@
+<html>
+    <body>
+        <div id="header">
+            <h1>VoteOzzy</h1>
+            <h2>Can't keep up with the political climate in Australia & don't know who to vote for?</h2>
+            <h2>Take the quiz to get a live ranking of parties who are most likely to share your opinions!</h2>
+            <i>All information is calculated locally. We value your privacy.</i>
+        </div>
+        <div id="content">
+            <div id="input_wrapper">
+                <i>How much do you support the following statement:</i>
+                <div id="statement"></div>
+                <button id="strongly_agree">Strongly Agree</button>
+                <button id="somewhat_agree">Somewhat Agree</button>
+                <button id="unsure">Unsure</button>
+                <button id="somewhat_disagree">Somewhat Disagree</button>
+                <button id="strongly_disagree">Strongly Disagree</button>
+            </div>
+            <div id="result">
+                <ul id="party_list"></ul>
+            </div>
+        </div>
+
+    </body>
+
+</html>
+
+<script>
+async function main() {
+    // Load and parse the embedding data
+    const response = await fetch('emb_data.json');
+    const data = await response.json();
+
+    // Decode base64 strings into Float32Arrays
+    function decodeEmbeddings(encodedDict) {
+        const result = {};
+        for (const key in encodedDict) {
+            const binaryStr = atob(encodedDict[key]);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+                bytes[i] = binaryStr.charCodeAt(i);
+            }
+            result[key] = new Float32Array(bytes.buffer);
+        }
+        return result;
+    }
+
+    const parties = decodeEmbeddings(data.parties);
+    const policies = decodeEmbeddings(data.policies);
+
+    // Cosine similarity sort
+    function closest(parties, userEmb) {
+        const distances = {};
+        for (const party in parties) {
+            const emb = parties[party];
+            const dot = dotProduct(userEmb, emb);
+            distances[party] = 1 - dot; // Cosine distance
+        }
+        return Object.keys(distances).sort((a, b) => distances[a] - distances[b]);
+    }
+
+    // Dot product
+    function dotProduct(a, b) {
+        let sum = 0;
+        for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+        return sum;
+    }
+
+    // Initialize user embedding
+    const embLength = policies[Object.keys(policies)[0]].length;
+    let userEmb = new Float32Array(embLength);
+    let n = 1;
+
+    // Get primary DOM elements
+    const statementDiv = document.getElementById('statement');
+    const partyList = document.getElementById('party_list');
+    const buttons = {
+        strongly_agree: document.getElementById('strongly_agree'),
+        somewhat_agree: document.getElementById('somewhat_agree'),
+        unsure: document.getElementById('unsure'),
+        somewhat_disagree: document.getElementById('somewhat_disagree'),
+        strongly_disagree: document.getElementById('strongly_disagree')
+    };
+
+    // Shuffle policies
+    function shuffle(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+
+    // Policy iteration
+    const policyKeys = shuffle(Object.keys(policies));
+    let currentPolicyIndex = 0;
+
+    function displayPolicy() {
+        if (currentPolicyIndex >= policyKeys.length) {
+            // Hide buttons and statement when done
+            statementDiv.innerHTML = 'Quiz complete! See your results below.';
+            Object.values(buttons).forEach(button => button.style.display = 'none');
+            document.querySelector('#input_wrapper i').style.display = 'none';
+            return;
+        }
+
+        const policy = policyKeys[currentPolicyIndex];
+        statementDiv.innerHTML = `"${policy}"`;
+    }
+
+    function updateResults() {
+        const normalizedEmb = userEmb.map(v => v / n);
+        const sortedParties = closest(parties, normalizedEmb);
+        partyList.innerHTML = sortedParties.map(party => `<li>${party}</li>`).join('');
+    }
+
+    // Button event listeners
+    buttons.strongly_agree.onclick = () => handleResponse(1);
+    buttons.somewhat_agree.onclick = () => handleResponse(0.5);
+    buttons.unsure.onclick = () => handleResponse(0);
+    buttons.somewhat_disagree.onclick = () => handleResponse(-0.5);
+    buttons.strongly_disagree.onclick = () => handleResponse(-1);
+
+    function handleResponse(direction) {
+        const policy = policyKeys[currentPolicyIndex];
+        for (let i = 0; i < embLength; i++) {
+            userEmb[i] += direction * policies[policy][i];
+        }
+        n += 1;
+        currentPolicyIndex++;
+        updateResults();
+        displayPolicy();
+    }
+
+    // Start quiz
+    displayPolicy();
+}
+
+main();
+</script>
+
+<style>
+
+html{
+    background-color: #383838;
+    color: #efefef;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Arial, Helvetica, sans-serif;
+
+    background-image: url("static/background.png");
+}
+
+body {
+    flex-direction: column;
+    display: flex;
+    align-items: center;
+}
+
+#header {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+}
+
+#header h1 {
+    line-height: 2em;
+    font-size: 4em;
+    padding: 0;
+    margin: 0;
+    text-shadow: 2px 2px 8px #1b1b1b;
+}
+
+#header h2 {
+    line-height: 1em;
+    font-size: 1.5em;
+    padding: 0;
+    margin: 0;
+    text-shadow: 2px 2px 8px #1b1b1b;
+}
+
+#header i {
+    line-height: 1em;
+    font-size: 1em;
+    margin-top: 0.5em;
+    text-shadow: 2px 2px 8px #1b1b1b;
+}
+
+#content {
+    width: 1000px;
+    margin-top: 50px;
+   
+    display: flex;
+    gap: 10px
+    
+}
+
+#input_wrapper {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+#input_wrapper i {
+    margin-bottom: 10px;
+}
+
+#input_wrapper #statement {
+    background-color: #ffffff0d;
+    border-radius: 5px;
+    font-size: 1.5em;
+    font-weight: 800;
+    padding: 30px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+#input_wrapper button {
+    font-size: 1.5em;
+    padding-block: 10px;
+    font-weight: 600;
+    height: calc(2em + 20px);
+    width: calc(100% - 60px);
+    margin-block: 10px;
+    color: inherit;
+
+	border: none;
+	cursor: pointer;
+
+    border-radius: 5px;
+    opacity: 0.9;
+}
+
+#input_wrapper button:hover {
+    opacity: 1;
+}
+
+#strongly_agree {
+    background-color: #446441;
+}
+
+#somewhat_agree {
+    background-color: #70a34e;
+}
+
+#unsure {
+    background-color: #d4b04a;
+}
+
+#somewhat_disagree {
+    background-color: #c42e1c;
+}
+
+#strongly_disagree {
+    background-color: #751a18;
+}
+
+#result {
+    height: 100%;
+    width: 100%;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+
+#result ul {
+    text-align: left;
+    max-height: 50vh;
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    overflow: scroll;
+
+    display: flex;
+    flex-direction: column;
+}
+
+#result ul {
+    
+    font-size: 2em;
+    padding-left: 20px
+}
+</style>
