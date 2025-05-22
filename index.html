@@ -27,116 +27,184 @@
 
 <script>
 async function main() {
-    // Load and parse the embedding data
-    const response = await fetch('emb_data.json');
-    const data = await response.json();
+      // Load and parse the embedding data
+      const response = await fetch('emb_data.json');
+      const data = await response.json();
 
-    // Decode base64 strings into Float32Arrays
-    function decodeEmbeddings(encodedDict) {
+      // Decode base64 strings into Float32Arrays
+      function decodeEmbeddings(encodedDict) {
         const result = {};
         for (const key in encodedDict) {
-            const binaryStr = atob(encodedDict[key]);
-            const bytes = new Uint8Array(binaryStr.length);
-            for (let i = 0; i < binaryStr.length; i++) {
-                bytes[i] = binaryStr.charCodeAt(i);
-            }
-            result[key] = new Float32Array(bytes.buffer);
+          const binaryStr = atob(encodedDict[key]);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          result[key] = new Float32Array(bytes.buffer);
         }
         return result;
-    }
+      }
 
-    const parties = decodeEmbeddings(data.parties);
-    const policies = decodeEmbeddings(data.policies);
+      const parties = decodeEmbeddings(data.parties);
+      const policies = decodeEmbeddings(data.policies);
 
-    // Cosine similarity sort
-    function closest(parties, userEmb) {
+      // Cosine similarity sort
+      function closest(parties, userEmb) {
         const distances = {};
         for (const party in parties) {
-            const emb = parties[party];
-            const dot = dotProduct(userEmb, emb);
-            distances[party] = 1 - dot; // Cosine distance
+          const emb = parties[party];
+          const dot = dotProduct(userEmb, emb);
+          const normA = Math.sqrt(dotProduct(userEmb, userEmb));
+          const normB = Math.sqrt(dotProduct(emb, emb));
+          distances[party] = 1 - dot / (normA * normB); // Cosine distance
         }
         return Object.keys(distances).sort((a, b) => distances[a] - distances[b]);
-    }
+      }
 
-    // Dot product
-    function dotProduct(a, b) {
+      // Cosine distance for policies
+      function closestPolicies(policies, userEmb) {
+        const distances = {};
+        for (const policy in policies) {
+          const emb = policies[policy];
+          const dot = dotProduct(userEmb, emb);
+          const normA = Math.sqrt(dotProduct(userEmb, userEmb));
+          const normB = Math.sqrt(dotProduct(emb, emb));
+          distances[policy] = 1 - dot / (normA * normB); // Cosine distance
+        }
+        return Object.keys(distances).sort((a, b) => distances[a] - distances[b]);
+      }
+
+      // Dot product
+      function dotProduct(a, b) {
         let sum = 0;
         for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
         return sum;
-    }
+      }
 
-    // Initialize user embedding
-    const embLength = policies[Object.keys(policies)[0]].length;
-    let userEmb = new Float32Array(embLength);
-    let n = 1;
+      // Initialize user embedding with small random values
+      const embLength = policies[Object.keys(policies)[0]].length;
+      let userEmb = new Float32Array(embLength);
+      for (let i = 0; i < embLength; i++) {
+        userEmb[i] = (Math.random() - 0.5) * 0.01; // Small random initialization
+      }
+      let n = 1;
 
-    // Get primary DOM elements
-    const statementDiv = document.getElementById('statement');
-    const partyList = document.getElementById('party_list');
-    const buttons = {
+      // Get primary DOM elements
+      const statementDiv = document.getElementById('statement');
+      const partyList = document.getElementById('party_list');
+      const buttons = {
         strongly_agree: document.getElementById('strongly_agree'),
         somewhat_agree: document.getElementById('somewhat_agree'),
         unsure: document.getElementById('unsure'),
         somewhat_disagree: document.getElementById('somewhat_disagree'),
         strongly_disagree: document.getElementById('strongly_disagree')
-    };
+      };
 
-    // Shuffle policies
-    function shuffle(array) {
+      // Shuffle array
+      function shuffle(array) {
         for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
+          const j = Math.floor(Math.random() * (i + 1));
+          [array[i], array[j]] = [array[j], array[i]];
         }
         return array;
-    }
+      }
 
-    // Policy iteration
-    const policyKeys = shuffle(Object.keys(policies));
-    let currentPolicyIndex = 0;
+      // Policy iteration
+      let policyKeys = Object.keys(policies);
+      let currentPolicyIndex = 0;
 
-    function displayPolicy() {
-        if (currentPolicyIndex >= policyKeys.length) {
-            // Hide buttons and statement when done
-            statementDiv.innerHTML = 'Quiz complete! See your results below.';
-            Object.values(buttons).forEach(button => button.style.display = 'none');
-            document.querySelector('#input_wrapper i').style.display = 'none';
-            return;
+      // Early-stop tracking
+      let topFiveHistory = [];
+      let stableCount = 0;
+      let stableCountTrigger = 10;
+
+      function selectNextPolicy() {
+        if (currentPolicyIndex >= policyKeys.length) return null;
+        // Sort policies by cosine distance to user embedding
+        const sortedPolicies = closestPolicies(policies, userEmb);
+        // Take top 20 (or less if fewer remain)
+        const topPolicies = sortedPolicies.slice(0, Math.min(20, sortedPolicies.length));
+        // Randomly select one from top 20
+        const selectedPolicy = topPolicies[Math.floor(Math.random() * topPolicies.length)];
+        // Remove selected policy from policyKeys
+        policyKeys = policyKeys.filter(p => p !== selectedPolicy);
+        return selectedPolicy;
+      }
+
+      function displayPolicy() {
+        if (currentPolicyIndex >= Object.keys(policies).length || (stableCount >= stableCountTrigger && currentPolicyIndex >= 5)) {
+          // Hide buttons and statement when done or early-stop
+          statementDiv.innerHTML = 'Quiz complete! See your results!';
+          Object.values(buttons).forEach(button => button.style.display = 'none');
+          document.querySelector('#input_wrapper i').style.display = 'none';
+          return;
         }
 
-        const policy = policyKeys[currentPolicyIndex];
-        statementDiv.innerHTML = `"${policy}"`;
-    }
+        const policy = selectNextPolicy();
+        if (policy) {
+          statementDiv.innerHTML = `"${policy}"`;
+        } else {
+          statementDiv.innerHTML = 'Quiz complete! See your results!';
+          Object.values(buttons).forEach(button => button.style.display = 'none');
+          document.querySelector('#input_wrapper i').style.display = 'none';
+        }
+      }
 
-    function updateResults() {
+      function updateResults() {
         const normalizedEmb = userEmb.map(v => v / n);
         const sortedParties = closest(parties, normalizedEmb);
-        partyList.innerHTML = sortedParties.map(party => `<li>${party}</li>`).join('');
-    }
+        // Display parties with rank
+        partyList.innerHTML = sortedParties.map((party, index) => `<li>${index + 1}. ${party}</li>`).join('');
 
-    // Button event listeners
-    buttons.strongly_agree.onclick = () => handleResponse(1);
-    buttons.somewhat_agree.onclick = () => handleResponse(0.5);
-    buttons.unsure.onclick = () => handleResponse(0);
-    buttons.somewhat_disagree.onclick = () => handleResponse(-0.5);
-    buttons.strongly_disagree.onclick = () => handleResponse(-1);
+        const topFive = sortedParties.slice(0, 5);
+        const bestParty = sortedParties[0];
+        const bestDistance = 1 - dotProduct(normalizedEmb, parties[bestParty]) / (
+          Math.sqrt(dotProduct(normalizedEmb, normalizedEmb)) * Math.sqrt(dotProduct(parties[bestParty], parties[bestParty]))
+        );
 
-    function handleResponse(direction) {
-        const policy = policyKeys[currentPolicyIndex];
+        topFiveHistory.push(topFive);
+
+        // Don't allow early-stop before 5 questions
+        if (currentPolicyIndex < stableCountTrigger) {
+          return;
+        }
+
+        if (topFiveHistory.length > 0) {
+          const lastTopFive = topFiveHistory[topFiveHistory.length - 1];
+          const isSame = topFive.every(party => lastTopFive.includes(party)) && lastTopFive.every(party => topFive.includes(party));
+          stableCount = isSame ? stableCount + 1 : 0;
+        }
+
+        console.log(bestDistance);
+
+        if (stableCount >= stableCountTrigger && bestDistance >= 0.9995) {
+          displayPolicy();
+        }
+      }
+
+      // Button event listeners
+      buttons.strongly_agree.onclick = () => handleResponse(1);
+      buttons.somewhat_agree.onclick = () => handleResponse(0.5);
+      buttons.unsure.onclick = () => handleResponse(0);
+      buttons.somewhat_disagree.onclick = () => handleResponse(-0.5);
+      buttons.strongly_disagree.onclick = () => handleResponse(-1);
+
+      function handleResponse(direction) {
+        const policy = statementDiv.innerHTML.slice(1, -1); // Remove quotes
         for (let i = 0; i < embLength; i++) {
-            userEmb[i] += direction * policies[policy][i];
+          userEmb[i] += direction * policies[policy][i];
         }
         n += 1;
         currentPolicyIndex++;
         updateResults();
         displayPolicy();
+      }
+
+      // Start quiz
+      displayPolicy();
     }
 
-    // Start quiz
-    displayPolicy();
-}
-
-main();
+    main();
 </script>
 
 <style>

@@ -1,0 +1,70 @@
+\documentclass{article}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+
+\begin{document}
+
+\begin{algorithm}
+\caption{Convert Policies Into Embeddings}
+\begin{algorithmic}[1]
+\State Initialize empty dictionary $policy\_embs$ (key=policy, value=embedding)
+\For{each $party$ in $data$}
+    \For{each $policy$ in $data[party]$}
+        \State Format $policy$ into $agree$ and $disagree$ statements via $LLM$
+        \State Convert $agree$ and $disagree$ statements into embeddings
+        \State Compute $delta\_emb$ as $agree$ minus $disagree$
+        \State Add $delta\_emb$ to $policy\_embs$
+    \EndFor
+\EndFor
+
+\State Store $policy\_embs$ as result
+\end{algorithmic}
+\end{algorithm}
+
+
+\begin{algorithm}
+\caption{Convert Parties Into Embeddings}
+\begin{algorithmic}[1]
+\State Load $policy\_embs$
+\State Initialize empty dictionary $party\_embs$ (key=party, value=embeddings)
+\For{each $party$ in $data$}
+    \For{each $policy$ in $policy\_embs$}
+        \If{$data[party][policy]$ exists}
+            \State Append $policy\_embs[policy]$ to $policy[party]$
+        \EndIf 
+    \EndFor
+\EndFor
+
+\For{each $party$ in $party\_embs$}
+    \State Set $party\_embs[policy]$ to average $party\_embs[policy]$
+\EndFor
+\State Store $party\_embs$ as result
+\end{algorithmic}
+\end{algorithm}
+
+
+\begin{algorithm}
+\caption{Find Closest Political Party Based on User Policy Preferences}
+\begin{algorithmic}[1]
+\State \textbf{Input:} JSON file \texttt{emb\_data.json} with party and policy embeddings
+\State \textbf{Output:} Sorted list of parties by proximity to user embedding
+\State Load JSON data from \texttt{emb\_data.json}
+\State Decode party embeddings into dictionary \texttt{parties}
+\State Decode policy embeddings into dictionary \texttt{policies}
+\State Initialize user embedding \texttt{user\_emb} as zero vector (same shape as policy embeddings)
+\State Initialize counter \texttt{n} $\gets 1$
+\For{each policy in \texttt{policies}}
+    \State Prompt user for preference score \texttt{score} $\in [-1, 1]$
+    \State Update \texttt{user\_emb} $\gets$ \texttt{user\_emb} + \texttt{score} $\times$ \texttt{policies[policy]}
+    \State Increment \texttt{n} $\gets$ \texttt{n} + 1
+    \State Compute distances: \texttt{1 - dot(user\_emb / n, party\_emb)} for each party
+    \State Sort parties by ascending distance
+    \State Output sorted party list
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+
+
+\end{document}
